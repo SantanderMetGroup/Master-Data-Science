@@ -11945,11 +11945,25 @@ Auto<span class="o">$</span>weight <span class="o">&lt;-</span> Auto<span class=
 <div class="prompt input_prompt">In&nbsp;[&nbsp;]:</div>
 <div class="inner_cell">
     <div class="input_area">
-<div class=" highlight hl-r"><pre><span></span>Auto<span class="o">$</span>origin <span class="o">&lt;-</span> <span class="kp">as.character</span><span class="p">(</span><span class="kp">factor</span><span class="p">(</span>Auto<span class="o">$</span>origin<span class="p">,</span> labels <span class="o">=</span> <span class="kt">c</span><span class="p">(</span><span class="s">&quot;American&quot;</span><span class="p">,</span> <span class="s">&quot;Japanese&quot;</span><span class="p">,</span> <span class="s">&quot;European&quot;</span><span class="p">)))</span>
-<span class="c1"># muestra de test</span>
+<div class=" highlight hl-r"><pre><span></span><span class="c1"># Ejecutar esto una sola vez</span>
+Auto<span class="o">$</span>origin <span class="o">&lt;-</span> <span class="kp">as.character</span><span class="p">(</span><span class="kp">factor</span><span class="p">(</span>Auto<span class="o">$</span>origin<span class="p">,</span> labels <span class="o">=</span> <span class="kt">c</span><span class="p">(</span><span class="s">&quot;American&quot;</span><span class="p">,</span> <span class="s">&quot;Japanese&quot;</span><span class="p">,</span> <span class="s">&quot;European&quot;</span><span class="p">)))</span>
+</pre></div>
+
+</div>
+</div>
+</div>
+
+</div>
+<div class="cell border-box-sizing code_cell rendered">
+<div class="input">
+<div class="prompt input_prompt">In&nbsp;[&nbsp;]:</div>
+<div class="inner_cell">
+    <div class="input_area">
+<div class=" highlight hl-r"><pre><span></span><span class="c1"># muestra de test</span>
 america <span class="o">&lt;-</span> Auto<span class="p">[</span>Auto<span class="o">$</span>origin <span class="o">==</span> <span class="s">&quot;American&quot;</span><span class="p">,</span> <span class="p">]</span>
 <span class="c1"># muestra de train</span>
 europe <span class="o">&lt;-</span> Auto<span class="p">[</span>Auto<span class="o">$</span>origin <span class="o">==</span> <span class="s">&quot;European&quot;</span><span class="p">,</span> <span class="p">]</span>
+str<span class="p">(</span>america<span class="p">);</span> str<span class="p">(</span>europe<span class="p">)</span>
 </pre></div>
 
 </div>
@@ -12081,7 +12095,7 @@ rmse <span class="o">&lt;-</span> <span class="kr">function</span><span class="p
 <div class="inner_cell">
 <div class="text_cell_render border-box-sizing rendered_html">
 <hr>
-<p><strong>Nota</strong>: Este procedimiento es idéntico (salvando posibles errores de redondeo) a utilizar nuestro modelo para predecir la respuesta (<em>weight</em>) en función del predictando (<em>horsepower</em>), empleando exactamente el mismo subcontunto que se utilizó en el proceso de entrenamiento:</p>
+<p><strong>Nota</strong>: Este procedimiento es idéntico (salvando posibles errores de redondeo) a utilizar nuestro modelo para predecir la respuesta (<em>weight</em>) en función del predictor (<em>horsepower</em>), empleando exactamente el mismo subcontunto que se utilizó en el proceso de entrenamiento:</p>
 
 </div>
 </div>
@@ -12342,7 +12356,7 @@ rmse<span class="p">(</span>europe.val<span class="o">$</span>weight<span class=
 <div class="inner_cell">
 <div class="text_cell_render border-box-sizing rendered_html">
 <p>A pesar de ello, esta metodología tiene dos inconvenientes potenciales:</p>
-<p>1.- La estimación del error en el conjunto de test puede variar mucho en función de la partición considerada:</p>
+<p>1.- La estimación del error en el conjunto de validación puede variar mucho en función de la partición considerada:</p>
 
 </div>
 </div>
@@ -12589,12 +12603,12 @@ abline<span class="p">(</span>h <span class="o">=</span> rmse<span class="p">(</
 <div class="inner_cell">
     <div class="input_area">
 <div class=" highlight hl-r"><pre><span></span>reg.3.all <span class="o">&lt;-</span> lm<span class="p">(</span>weight<span class="o">~</span>horsepower<span class="p">,</span> data <span class="o">=</span> europe<span class="p">)</span>
-
 <span class="c1">#(...)</span>
 
-plot<span class="p">(</span><span class="kp">do.call</span><span class="p">(</span><span class="s">&quot;c&quot;</span><span class="p">,</span> rmse.val.3.folds<span class="p">),</span> ylab <span class="o">=</span> <span class="s">&quot;rmse&quot;</span><span class="p">,</span> xlab <span class="o">=</span> <span class="s">&quot;fold&quot;</span><span class="p">,</span> pch <span class="o">=</span> <span class="s">&quot;x&quot;</span><span class="p">,</span> ylim <span class="o">=</span> <span class="kt">c</span><span class="p">(</span><span class="m">0</span><span class="p">,</span> <span class="m">400</span><span class="p">))</span>
-abline<span class="p">(</span>h <span class="o">=</span> rmse.val.3<span class="p">)</span>
-<span class="c1">#abline(...</span>
+plot<span class="p">(</span><span class="kp">do.call</span><span class="p">(</span><span class="s">&quot;c&quot;</span><span class="p">,</span> rmse.val.3.folds<span class="p">),</span> ylab <span class="o">=</span> <span class="s">&quot;rmse&quot;</span><span class="p">,</span> xlab <span class="o">=</span> <span class="s">&quot;fold&quot;</span><span class="p">,</span> pch <span class="o">=</span> <span class="s">&quot;x&quot;</span><span class="p">,</span> ylim <span class="o">=</span> <span class="kt">c</span><span class="p">(</span><span class="m">0</span><span class="p">,</span> <span class="m">400</span><span class="p">))</span><span class="c1"># error de validación obtenido anteriormente para cada fold</span>
+abline<span class="p">(</span>h <span class="o">=</span> rmse.val.3<span class="p">)</span><span class="c1"># error de validación global (de todos los folds) obtenido anteriormente </span>
+
+<span class="c1"># abline(...</span>
 
 <span class="c1">#(...)</span>
 </pre></div>
@@ -12608,7 +12622,7 @@ abline<span class="p">(</span>h <span class="o">=</span> rmse.val.3<span class="
 </div>
 <div class="inner_cell">
 <div class="text_cell_render border-box-sizing rendered_html">
-<h1 id="Pr&#225;ctica-2">Pr&#225;ctica 2<a class="anchor-link" href="#Pr&#225;ctica-2">&#182;</a></h1><p>Utiliza la librería caret para reproducir el último ejemplo de cross-validación con k-fold y obten el error de validación global.</p>
+<h1 id="Pr&#225;ctica-2">Pr&#225;ctica 2<a class="anchor-link" href="#Pr&#225;ctica-2">&#182;</a></h1><p>Utiliza la librería caret para reproducir el último ejemplo de cross-validación con k-fold y obtén el error de validación global.</p>
 <p>Escribe el código a continuación:</p>
 
 </div>
