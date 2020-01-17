@@ -1,0 +1,638 @@
+---
+title: "Árboles de decisión"
+subtitle: "Práctica de aplicación a problemas de regresión"
+author: "Santander Meteorology Group"
+output:
+  html_document:
+    fig_caption: yes
+    highlight: pygments
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    fig_caption: yes
+    highlight: pygments
+    latex_engine: pdflatex
+    pandoc_args:
+    - --number-sections
+    - --number-offset=0
+    toc: yes
+encoding: UTF8
+documentclass: article
+abstract: 
+urlcolor: blue
+---
+
+\fontfamily{cmr}
+\fontsize{11}{22}
+\selectfont
+
+<!--
+# Ajustando Árboles de Regresión
+
+## Construcción del árbol de regresión. El conjunto de datos "Boston"
+
+En primer lugar, se utilizará el dataset `Boston` para entrenar un árbol regresión. Construiremos un árbol sencillo tomado un subconjunto de entrenamiento, considerando todos los valores por defecto de la función `tree`:
+
+```{r, eval = TRUE, echo = TRUE, warning=FALSE}
+library(MASS)
+library(tree)
+set.seed(1)
+indTrain <- sample(1:nrow(Boston), nrow(Boston)/2)
+tree.boston <- tree(medv ~ ., Boston, subset = indTrain)
+summary(tree.boston)
+```
+
+La salida de `summary()` resulta de utilidad para entender el modelo:
+
+ * `Number of terminal nodes`: se refiere al número de hojas (nodos terminales) del árbol resultante. Da una idea de la "complejidad" o "profundidad" del árbol ajustado, ya que cada nueva rama que se crea origina un nodo terminal nuevo.
+ * `Residual mean deviance`, o desviación residual media (varianza de los residuos), es la "desviación residual total" (`total residual deviance`) dividida por el número de observaciones ($n$). En este sentido, la desviación residual total ($TRD$) es la suma de cuadrados de los residuos:
+
+$$TRD = \sum_{i=1}^n(\hat{y_i}-y_i)^2\Rightarrow RMD = \frac{1}{n}\sum_{i=1}^n(\hat{y_i}-y_i)^2$$
+
+ * Nota: En árboles de clasificación, aparecerá el término `Misclassification error rate`, o tasa de error de la clasificación, que es el número de observaciones mal clasificadas dividido entre el número total de observaciones. Es la medida de error equivalente a la desviación residual media en problemas de clasificación.
+
+En este ejemplo, la salida del método `summary()` indica que para la construcción del árbol se han empleado sólo 4 de las 13 covariables candidatas. El árbol resultante tiene 7 nodos terminales u "hojas". El objeto cuenta con su propio método de `plot()`, al que es necesario añadir las etiquetas en un segundo paso mediante la función `text()`:
+
+```{r, eval = TRUE, echo = TRUE, warning=FALSE}
+plot(tree.boston)
+text(tree.boston)
+```
+
+La variable `lstat` mide el porcentaje de habitantes con un nivel socio-económico bajo. El árbol indica que valores bajos de esta variable se corresponden con casas más caras, como cabe esperar. El árbol predice un precio medio por vivienda de \$46,400 para viviendas grandes en barrios cuyos residentes tienen un nivel socio-económico alto ($rm >= 7.437$ y $lstat < 9.715$).
+
+Alternativamente, la estructura del árbol puede explorarse observando la salida por pantalla del propio objeto, aunque esto en general sólo va a resultar plausible para árboles relativamente pequeños como el de este ejemplo, debido a la gran cantidad de información que puede llegar a generarse en árboles muy profundos. Así:
+
+```{r}
+print(tree.boston)
+```
+
+Estos valores son:
+
+* `node`: Un número identificativo para cada nodo en el árbol
+* `split`: La regla de decisión utilizada para crear una bifurcación (rama)
+* `n`: el número de observaciones que cumplen en criterio de escisión (es decir, que se van a la izquierda)
+* `deviance`: la desviación en esa rama (RMD calculado con la `n` anterior)
+* `yval`: valor predicho para las observaciones de ese nodo (valor medio de todas las observaciones del nodo)
+* `*`: el asterisco indica que el nodo en cuestión es terminal
+
+Como se ha indicado en la teoría, los árboles de decisión son proclives al sobreajuste si no se limita de algún modo su crecimiento, lo que se conoce como "poda" (_prunning_)-
+
+
+### Validación cruzada
+
+La función `cv.tree()` realiza un entrenamiento con validación cruzada (`K=10` por defecto) de modo que permite calcular la desviación (_total residual deviance_, TRD) en función de la complejidad del árbol. Esto resulta útil para decidir el tamaño adecuado que éste debe tener para no resultar excesivamente complejo. 
+
+```{r, eval = TRUE, echo = TRUE, warning=FALSE}
+cv.boston <- cv.tree(tree.boston)
+plot(cv.boston$size, cv.boston$dev, type = "b",
+     xlab = "Number of terminal nodes",
+     ylab = "Total residual deviance (10 folds)")
+```
+
+
+El gráfico anterior sugiere que un árbol de más de 4 o 5 nodos terminales no mejora la desviación total, y por lo tanto más complejidad que esa no añade información. 
+
+Alternativamente, podemos aplicar el método plot directamente sobre el objeto resultante de `cv.tree`:
+
+```{r}
+plot(cv.boston)
+```
+
+
+Este gráfico muestra esencialmente la misma información que el anterior, pero además añade un eje secundario en la parte superior que indica el parámetro _cost-complexity_ (`k`) asociado a cada árbol. La construcción del árbol se detiene a menos que sea posible mejorar el ajuste por un factor `k`. 
+
+En este caso, una vez alcanzado el árbol de 7 nodos terminales ($k=-\infty$), no es posible mejorar el ajuste del árbol añadiendo ninguna variable explicativa más, y el algoritmo se detiene.
+
+
+En las siguientes secciones veremos como limitar el crecimiento del árbol para evitar el sobreajuste.
+
+### Poda del árbol: "Post-prunning"
+
+Puede reducirse la complejidad del árbol a posteriori mediante la "poda" del mismo. La función `prune.tree()` sirve para este fin. En este caso, mediante el argumento `best` se impone un número predeterminado de nodos terminales (hojas), llegado el cual el algoritmo se detiene. 
+
+Como se ha visto en la sección anterior, parece razonable limitar el crecimiento del árbol a 4 ó 5 nodos terminales (hojas), pasados los cuales la disminución en la varianza total es mínima. El número de hojas del árbol puede fijarse directamente mediante el argumento `best`.
+
+```{r, eval = TRUE, echo = TRUE, warning=FALSE}
+prune.boston <- prune.tree(tree.boston, best = 4)
+plot(prune.boston)
+title(main = "Prunned tree - 4 leaves")
+text(prune.boston, col = "red")
+```
+
+Consideremos el árbol inicial (sin "podar") para hacer predicciones sobre el conjunto de test y evaluemos el error:
+
+```{r, eval = TRUE, echo = TRUE, warning=FALSE}
+yhat <- predict(tree.boston, newdata = Boston[-indTrain, ])
+boston.test <- Boston[-indTrain, "medv"]
+plot(yhat, boston.test)
+abline(0,1)
+rmse.test <- sqrt(mean((yhat - boston.test)^2))
+mtext(text = paste("RMSE =", round(rmse.test, 3)), side = 3)
+```
+
+Mientras que en el conjunto de entrenamiento obtenemos:
+
+```{r, eval=TRUE, echo=TRUE, warning=FALSE}
+yhat <- predict(tree.boston, newdata = Boston[indTrain,])
+boston.test <- Boston[indTrain, "medv"]
+plot(yhat, boston.test)
+abline(0,1)
+rmse.train <- sqrt(mean((yhat - boston.test)^2))
+mtext(text = paste("RMSE =", round(rmse.train, 3)), side = 3)
+```
+
+Es decir, mientras que en el conjunto de test tenemos un error de `r round(rmse.test, 3)` para el conjunto de train, para el conjunto de entrenamiento se obtiene un error de `r round(rmse.train, 3)`. La diferencia entre ambos valores es un síntoma de sobreajuste, que aconseja la poda. 
+
+
+Si repetimos esta prueba con el árbol podado (4 nodos terminales):
+
+```{r, eval = TRUE, echo = TRUE, warning=FALSE}
+yhat <- predict(prune.boston, newdata = Boston[-indTrain, ])
+prune.test <- Boston[-indTrain, "medv"]
+plot(yhat, prune.test)
+title(main = "Pruned tree - test set")
+abline(0,1)
+rmse.test <- sqrt(mean((yhat - prune.test)^2))
+mtext(text = paste("RMSE =", round(rmse.test, 3)), side = 3)
+```
+
+
+```{r, eval = TRUE, echo = TRUE, warning=FALSE}
+yhat <- predict(prune.boston, newdata = Boston[indTrain, ])
+prune.train <- Boston[indTrain, "medv"]
+plot(yhat, prune.train)
+title(main = "Pruned tree - training set")
+abline(0,1)
+rmse.train <- sqrt(mean((yhat - prune.train)^2))
+mtext(text = paste("RMSE =", round(rmse.train, 3)), side = 3)
+```
+
+En este caso, la poda acerca el error entre los conjuntos de train (`r round(rmse.train, 2)`) y test (`r round(rmse.test, 2)`), síntoma de que el árbol no está tan sobreajustado como en el caso anterior.
+
+### Limitando el crecimiento del árbol: "Pre-prunning"
+
+La función `tree.control` permite controlar el crecimiento del árbol en la fase de ajuste del mismo mediante los argumentos `nobs`, `mincut`, `minsize` y `mindev`.
+
+---
+Revisa la documentación de la función `tree.control` para entender estos argumentos, y construye un árbol sin restricción alguna (es decir, aquel que tiene la máxima profundidad). 
+---
+
+```{r,eval = TRUE, echo = TRUE}
+tc <- tree.control(nobs = length(indTrain), mindev = 0, minsize = 2)
+tree.train <- tree(medv~., Boston, subset = indTrain, control = tc)
+yhat.test <- predict(tree.train, newdata = Boston[-indTrain,])
+yhat.train <- predict(tree.train, newdata = Boston[indTrain,])
+boston.test <- Boston[-indTrain, "medv"]
+boston.train <- Boston[indTrain, "medv"]
+plot(yhat.test, boston.test)
+abline(0,1)
+(rmse.trains <- sqrt(mean((yhat.train-boston.train)^2)))
+(rmse.test <- sqrt(mean((yhat.test-boston.test)^2)))
+```
+
+---
+¿Cómo cambian los errores de test y de train en este caso?. ¿Cómo se interpreta esto?
+---
+
+Encontramos que existe un gran diferencia entre el error de train (próximo a cero), y el de test, lo que indica un fuerte sobreajuste. Cabe notar que el error de test no es mucho más bajo que la desviación típica del conjunto de datos observados.
+
+```{r}
+sd(boston.test)
+sqrt(mean((yhat.test - boston.test)^2))
+```
+
+### Obtención de predicciones continuas. El paquete `Cubist`
+
+El paquete `Cubist` hará un ajuste mediante regresión de los subconjuntos de datos contenidos en cada una de las hojas del árbol. Ello permite obtener predicciones continuas, lo cual mejora la variabilidad de las predicciones, que de otro modo tienen un único valor para cada grupo.
+
+```{r}
+library(caret)
+if (!require(Cubist)) install.packages("Cubist")
+# Type ?models for details
+cub.tree <- train(form = medv ~ ., data = Boston, subset = indTrain, method = "cubist")
+pred.cubist <- predict(object = cub.tree, newdata = Boston[-indTrain,])
+```
+El método `summary` permite ver los detalles del proceso de ajuste:
+
+```{r,eval=FALSE}
+summary(cub.tree)
+```
+
+
+Si se comparan las predicciones de `Cubist` con el árbol de regresión clásico, se aprecia que aquellas son continuas:
+
+```{r}
+normal.tree <- tree(medv ~ . , data = Boston, subset = indTrain)
+pred.tree <- predict(object = normal.tree, newdata = Boston[-indTrain,])
+plot(pred.cubist, Boston[-indTrain, "medv"], ylab = "Observed", xlab = "Predicted")
+points(pred.tree, Boston[-indTrain, "medv"], col = "red")
+legend("topleft", c("cubist", "tree"), pch = 21, col = c(1,2))
+```
+
+-->
+
+# Práctica: El conjunto de datos "Hitters"
+
+La librería ISLR contiene el dataset `Hitters` el cual contiene diferentes datos de jugadores de baseball y cuyo objetivo es la predicción del salario de los jugadores en función de diferentes variables explicativas (Notar que la base de datos en este caso puede tener valores perdidos (`NA`), que deben ser filtrados. )
+
+Se utilizará este conjunto de datos para resolver de forma autónoma por parte del alumno una serie de cuestiones que se plantean a continuación, empleando para ello árboles de regresión.
+
+```{r, eval = TRUE, echo = TRUE, warning=FALSE}
+library(ISLR)
+library(tree)
+data("Hitters")
+attach(Hitters)
+library(magrittr)
+# remove NA values
+Hitters <- na.omit(Hitters)
+Salary <- na.omit(Salary) 
+```
+
+Del mismo modo, en este caso es preferible trabajar con el logaritmo del salario (`log(Salary)`) para aproximar la distribución de esta variable a una normal.
+
+```{r,eval=TRUE}
+hist(log(Salary))
+```
+
+## Construcción del árbol de decisión
+
+### Construir un primer modelo considerando únicamente como variables explicativas el número de años que el jugador ha participado en las ligas mayores (`Years`) y el número de bateos de la temporada anterior (`Hits`). No impongas restricciones al árbol en su crecimiento
+
+Utilizaremos para el ajuste la función `tree` del paquete del mismo nombre (Ripley 2019). Por defecto, el ajuste mediante `tree` da lugar a un árbol de regresión (o clasificación) completo, es decir, que el algoritmo de partición recursiva trabaja hasta que los nodos terminales del árbol (hojas) ya no puede ser sub-divididos debido a su pequeño tamaño. Como se ha visto, este funcionamiento del algoritmo lo hace particularmente proclive al sobreajuste.   
+
+
+```{r}
+treefit <- tree(log(Salary) ~ Years + Hits, data = Hitters)
+summary(treefit) %>% print()
+```
+
+En el primer caso, puede representarse el problema gráficamente, disponiendo las dos covariables en los ejes X e Y, y representando mediante una paleta de colores la variable respuesta (salario anual). Para lograr una proporción de aspecto similar, se estandarizan las variables explicativas antes de dibujarlas. 
+
+```{r}
+library(classInt) # class-interval recoding library
+library(RColorBrewer) # useful color palettes
+nclr <- 10
+colors <- brewer.pal(nclr,"PuOr")
+colors <- colors[nclr:1] # reorder colors
+class <- classIntervals(Hitters$Salary, n = nclr, style = "quantile")
+colcode <- findColours(class, colors)
+plot(Hitters$Hits, Hitters$Years, pch = 19,
+     col = colcode,
+     xlab = "Hits",
+     ylab = "Years",
+     main = "Annual Salary (1000$)")
+legend("topright", names(attr(colcode, "table")),
+       pch = 19, col = attr(colcode, "palette"),
+       cex = .7, ncol = 3)
+```
+
+
+A juzgar por la representación gráfica, y de forma aproximada, parece que la variable Years separa bastante bien los salarios más bajos (azul oscuro) del resto los más altos. También parece que los salarios más altos (tonos marrones) quedan bien separados a partir de un cierto valor de la variable Hits 
+
+### A continuación extiende el experimento considerando todos los predictores, obteniendo el correspondiente árbol. No impongas restricciones al árbol en su crecimiento. Compara los resultados obtenidos con este modelo y con el modelo aprendido en el apartado anterior.
+
+```{r}
+treefit.all <- tree(log(Salary) ~ ., data = Hitters)
+summary(treefit.all) %>% print()
+```
+
+
+En cuanto a la complejidad del árbol generado, el primero da lugar a 8 nodos terminales, mientras que el segundo a 9. En este sentido, la profundidad del segundo árbol es mayor que la del primero, como cabría esperar. La varianza residual en el segundo caso (0.17) es notablemente más reducida que en el primero (0.27). En la siguiente pregunta veremos con un poco más de detalle las características de los árboles generados.
+
+### Describir brevemente el árbol de decisión obtenido en cada caso a partir del informe proporcionado por la función `summary`. Dibujar ambos árboles y explicar brevemente qué características tiene cada uno de los grupos definidos en cada una de las ramas.
+
+En el caso del primer árbol, la primera variable decisoria es "Years" (número de años en las ligas profesionales), y la segunda el número de bateos, indicando que aquella tiene una mayor capacidad de separación de los datos que la segunda. Esto es lo que de manera más informal, se había intuído viendo el gráfico de los datos del apartado anterior.
+
+```{r}
+plot(treefit)
+text(treefit)
+```
+
+El trazo de línes en cada uno de los umbrales de partición ayuda a identificar las 8 regiones que consitutyen la clasificación obtenida:
+
+```{r}
+plot(Hitters$Hits, Hitters$Years, pch = 19,
+     col = colcode,
+     xlab = "Hits",
+     ylab = "Years",
+     main = "Annual Salary (1000$)")
+abline(h = c(3.5, 4.5, 6.5),
+       v = c(40.5, 50.5, 114, 117.5))
+
+```
+
+
+De acuerdo con la información proporcionada por `summary`, en el segundo caso el árbol considera sólo 7 de las 19 variables explicativas candidatas.
+
+```{r}
+plot(treefit.all)
+text(treefit.all)
+```
+
+El método `print` permite obtener alguna información adicional, como por ejemplo el número de instancias en cada nodo terminal. Algunos nodos terminales incluyen muy pocas observaciones ($n=5$), lo cual puede ser un síntoma de sobreajuste.
+
+```{r}
+print(treefit.all)
+```
+
+### Valora el sobreajuste de los modelos obtenidos
+
+Para valorar el sobreajuste, realizamos una partición aleatoria del conjunto de datos, y ajustamos de nuevo los modelos para ver la diferencia en el error entre los conjuntos de entrenamiento y test. Tomaremos aproximadamente un 70% de las instancias para entrenar, y el 30% restante para test.
+
+```{r}
+set.seed(1)
+ind.train <- sample(1:nrow(Hitters), floor(nrow(Hitters)*0.7))
+salary.obs <- Hitters$Salary %>% log()
+```
+En un primer paso se realiza el ajuste del modelo de dos covariables con el subconjunto de entrenamiento, y se realizan las predicciones a partir de los conjuntos de entrenamiento y de test:
+
+```{r}
+treefit1 <- tree(log(Salary) ~ Years + Hits, data = Hitters, subset = ind.train)
+salary.pred1.test <- predict(treefit1, newdata = Hitters[-ind.train, ])
+salary.pred1.train <- predict(treefit1, newdata = Hitters[ind.train, ])
+```
+
+Se realiza la misma operación con el modelo que emplea todas las covariables:
+
+```{r}
+treefit2 <- tree(log(Salary) ~ ., data = Hitters, subset = ind.train)
+salary.pred2.test <- predict(treefit2, newdata = Hitters[-ind.train, ])
+salary.pred2.train <- predict(treefit2, newdata = Hitters[ind.train, ])
+```
+
+La función rmse permite calcular la raiz del error cuadrático medio (RMSE):
+
+```{r}
+rmse <- function(obs, pred) {
+  stopifnot(identical(length(obs), length(pred)))
+  sqrt(mean(pred - obs)^2)
+}
+```
+
+En el primer caso, el error con el subconjunto de entrenamiento es prácticamente cero:
+
+```{r}
+(error.train1 <- rmse(salary.obs[ind.train], salary.pred1.train))
+(error.test1 <- rmse(salary.obs[-ind.train], salary.pred1.test))
+```
+
+Con el segundo modelo, sucede algo similar, siendo el error del conjunto de test mayor que en el primer caso, lo que indica que el sobreajuste de este modlo es aún mayor que en el primer caso, como cabía esperar.
+
+```{r}
+(error.train2 <- rmse(salary.obs[ind.train], salary.pred2.train))
+(error.test2 <- rmse(salary.obs[-ind.train], salary.pred2.test))
+```
+
+La siguiente tabla proporciona un resumen de los resultados obtenidos:
+
+| Salary ~ Years + Hits | | Salary ~ . | | 
+| ---------------- | -- | ------------- | -- |
+| RMSE train | RMSE test | RMSE train | RMSE test |
+| `r round(error.train1,5)` | `r round(error.test1,5)`| `r round(error.train2,5)`| `r round(error.test2,5)`|
+
+A continuación representamos en sendos gráficos de dispersión los valores predichos frente a los observados, indicando el error (RMSE) en cada caso:
+
+```{r}
+par(mfrow = c(1, 2))
+plot(salary.pred1.test, salary.obs[-ind.train],
+     main = "log(Salary) ~ Years + Hits",
+     asp = 1, ylab = "obs", xlab = "pred")
+abline(0, 1)
+mtext(text = paste("RMSE (test) =", round(error.test1, 3)), side = 3)
+
+plot(salary.pred2.test, salary.obs[-ind.train],
+     main = "log(Salary) ~ .",
+     asp = 1, ylab = "obs", xlab = "pred")
+abline(0, 1)
+mtext(text = paste("RMSE (test) =", round(error.test2, 3)), side = 3)
+```
+
+```{r,echo=FALSE}
+par(mfrow = c(1, 1))
+```
+
+## Validación cruzada y poda a posteriori (post-prunning)
+ 
+A lo largo de esta sección se considera únicamente el modelo que incorpora todas las covariables. Los pasos a seguir serían similares en caso de aplicarse al primer modelo de dos covariables. 
+ 
+### Utiliza la función `cv.tree()` para realizar un post-prunning adecuado de un árbol completo de los datos. Explica los resultados obtenidos tras la aplicación de `cv.tree()`.
+
+En este ejemplo se consideran los ajustes por defecto de la función, que realiza un K-fold cross validation con K=10, con le fin de porporcionar una medida del error (desviación) en función de la complejidad del árbol generado:
+
+```{r}
+cv.hitters <- cv.tree(treefit.all)
+```
+
+El siguiente gráfico muestra los resultados:
+
+```{r}
+plot(cv.hitters$size, cv.hitters$dev, type = "b",
+     xlab = "Number of terminal nodes",
+     ylab = "Total residual deviance (10 folds)")
+
+```
+
+A la vista de los resultados, parece que aumentar la complejidad del árbol de regresión más allá de 4 nodos terminales no porporciona un valor añadido en cuanto a variabilidad explicada, por lo que en la siguiente sección se impone esta restricción en la construcción del nuevo árbol de regresión:
+ 
+### En vista de los resultados obtenidos en la sección anterior, construye un nuevo árbol de regresión que sea el resultado de una poda del árbol inicial
+
+Mediante la función `prune.tree` y el argumento `best` es posible efectuar la poda del árbol inicial de acuerdo con los resultados del apartado anterior:
+
+```{r}
+pruned <- prune.tree(treefit.all, best = 4)
+plot(pruned)
+title(main = "Prunned tree - 4 leaves")
+text(pruned)
+```
+
+De acuerdo con estos resultados, el árbol obtenido tan sólo incorpora tres variables explicativas de entre todas las variables candidatas. 
+
+```{r}
+summary(pruned) %>% print()
+```
+
+Una inspección de los datos un poco más detallada revela que las covariables `CHits` (número de bateos durante su carrera) y `CAtBat` (número de ocasiones en que ha bateado durante su carrera) estan altamente correlacionadas, por lo que aportan al modelo esencialmente la misma información, siendo redundantes. 
+
+```{r}
+Hitters.subset <- subset(Hitters, select = c("CHits", "Hits", "CAtBat"))
+plot(Hitters.subset)
+```
+
+Construiremos por lo tanto un modelo aún más simple, considerando únicamente dos variables: `CHits` y `Hits` (número de bateos en la temporada 1986), para evitar la redundancia introducida por las variables `CHits` y `CAtBat`.
+
+```{r}
+newtree <- tree(log(Salary) ~ CHits + Hits, data = Hitters)
+newpruned <- prune.tree(newtree, best = 4)
+summary(newpruned) %>% print()
+plot(newpruned)
+text(newpruned)
+```
+
+Por lo tanto, en este caso resulta inmediato dibujar el espacio de decisión en el plano, tal y como se hizo en las secciones anteriores. En este caso, representamos las cuatro regiones (nodos terminales) definidas por el árbol de regresión. 
+
+```{r}
+plot(Hitters$CHits, Hitters$Hits, pch = 19,
+     col = colcode,
+     xlab = "CHits (Total # Hits career)",
+     ylab = "Hits (Total # Hits 1986)",
+     main = "Annual Salary (1000$)")
+legend("topright", names(attr(colcode, "table")),
+       pch = 19, col = attr(colcode, "palette"),
+       cex = .8, ncol = 2)
+lines(x = c(358, max(Hitters$CHits) + 500),
+      y = c(117.5, 117.5))
+abline(v = c(182,358))
+```
+
+
+### Evalúa el sobreajuste antes y después de la poda.
+
+Se procede como en la sección anterior, evaluando la diferencia del error entre los conjuntos de entrenamiento y de test para el árbol completo (_"fully-grown"_, objeto `newtree`) y el árbol tras el post-prunning (`newpruned`).
+
+Con el árbol completo:
+
+```{r}
+pred1.test <- predict(newtree, newdata = Hitters[-ind.train, ])
+pred1.train <- predict(newtree, newdata = Hitters[ind.train, ])
+```
+
+Se realiza la misma operación con el árbol podado:
+
+```{r}
+pred2.test <- predict(newpruned, newdata = Hitters[-ind.train, ])
+pred2.train <- predict(newpruned, newdata = Hitters[ind.train, ])
+```
+
+
+```{r}
+rmse(pred1.test, Hitters[-ind.train, "Salary"])
+rmse(pred1.train, Hitters[ind.train, "Salary"])
+```
+
+```{r}
+rmse(pred2.test, Hitters[-ind.train, "Salary"])
+rmse(pred2.train, Hitters[ind.train, "Salary"])
+```
+
+En este caso, no se aprecian cambios significativos en cuanto a la diferencia del error entre train y test, considerando el árbol completo y el árbol podado. En ambos casos, la diferencia entre ambos es pequeña, lo que indica que el problema del sobreajuste se encuentra controlado en este modelo, incluso antes de la poda. Ello indica que un modelo parsimonioso (en este caso que incluye muy pocas variables explicativas, únicamente 2), tiene en general una mejor capacidad de generalización.
+
+## Poda a priori (pre-prunning)
+ 
+### La función `tree.control` permite jugar con distintos parámetros para controlar el crecimiento del árbol, y poder de este modo evitar el sobreajuste. Realiza algunas pruebas con estos parámetros y evalúa el árbol resultante para comprobar el efecto de diferentes parámetros sobre la complejidad del árbol resultante.
+
+**Parámetro `minsize`**
+
+El parámetro `minsize` controla el támaño de cada nodo del árbol. De este modo, indica el tamaño mínimo permitido para cada nuevo nodo creado, de modo que obliga al algopritmo de partición recursiva a detenerse cuando alguno de los nodos hijos resultantes tenga un número menor de instancias que el permitido. El valor por defecto es 10, pero hay que tener en cuenta que este número es relativo al pool total de instancias analizadas enb cada paso. En este caso, la primera partición del dataset Hitters, fijando un valor de `minsize = 10`, obliga a los nodos resultantes de dicha partición a tener al menos `r nrow(Hitters)` (el número total de observaciones del conmjunto de datos Hitters) entre 10 instancias.
+
+En este primer ejemplo, analizaremos el efecto del parámetro `minsize` sobre i.) la complejidad del árbol resultante y ii) la varianza residual del ajuste. El siguiente bucle recorre diferentes valores de `minsize` devolviendo la coimplejidad del árbol resultante y la varianza residual en cada caso.
+
+
+```{r}
+minsizes <- c(200, 100, 50, 20, 2)
+minsize <- sapply(minsizes, function(i) {
+  control.pars <- tree.control(nobs = nrow(Hitters), minsize = i)
+  summ <- tree(log(Salary) ~ ., data = Hitters, control = control.pars) %>% summary()
+  c(summ$size, summ$dev/summ$df)
+})
+```
+
+Se representan gráficamente los resultados a continuación:
+
+```{r}
+par(mar = c(5, 5, 3, 5))
+plot(as.character(minsizes), minsize[1,], type = "b", ylab = "Tree size",
+     xlab = "\'minsize\' parameter value")
+par(new = TRUE)
+plot(as.character(minsizes), minsize[2,], type = "b", xaxt = "n", yaxt = "n",
+     ylab = "", xlab = "", col = "red", lty = 2)
+axis(side = 4, col.ticks = "red", col.axis = "red")
+mtext("Mean residual deviance", side = 4, line = 3)
+legend("top", c("tree size", "mean res. dev."),
+       col = c("black", "red"), lty = c(1, 2))
+```
+
+Como se aprecia, a medida que se restringe el tamaño de cada nodo a un número mayor, la complejidad del árbol disminuye. El caso extremo es el último que se ha probado, en el cual no se permiten nodos con menos de 200 instancias, lo cual evidentemente sólo permite una partición del conjunto de datos. 
+
+**Parámetro `mincut`**
+
+Por lo tanto, el parámetro `minsize` provoca la detención del algoritmo de partición una vez alcanzado un valor menor que el fijado. Por el contrario, el parámetro `mincut` parte de una idea similar, pero considerando el número mínimo de observaciones en cada uno de los dos hijos de la partición, por lo que si alguno de ellos es menor, detiene en ese punto la división sin llegar a realizarla. Es decir, mincut no espera a estar por debajo del valor prefijado, a diferencia de `minsize`. 
+
+```{r}
+mincuts <- c(200, nrow(Hitters)/2, 100, 50, 20, 2)
+mincut <- sapply(mincuts, function(i) {
+  control.pars <- tree.control(nobs = nrow(Hitters), mincut = i)
+  summ <- tree(log(Salary) ~ ., data = Hitters, control = control.pars) %>% summary()
+  c(summ$size, summ$dev/summ$df)
+})
+```
+
+```{r}
+par(mar = c(5, 5, 3, 5))
+plot(as.character(mincuts), mincut[1,], type = "b", ylab = "Tree size",
+     xlab = "\'mincut\' parameter value")
+par(new = TRUE)
+plot(as.character(mincuts), mincut[2,], type = "b", xaxt = "n", yaxt = "n",
+     ylab = "", xlab = "", col = "red", lty = 2)
+axis(side = 4, col.ticks = "red", col.axis = "red")
+mtext("Mean residual deviance", side = 4, line = 3)
+legend("top", c("tree size", "mean res. dev."),
+       col = c("black", "red"), lty = c(1, 2))
+```
+
+En este caso, hemos añadido un valor intermedio igual a la mitad de las observaciones (~131), de modo que se logra un árbol con dos nodos terminales. Por encima de este valor (p.ej.: `mincut = 200`), no se realiza ninguna partición de los datos (tamaño del árbol = 1), ya que no es posible obtener nodos descendientes que contengan más observaciones que el valor prescrito.
+
+**Parámetro `mindev`**
+
+Alternativamente, para controlar el crecimiento del árbol podemos actuar sobre el error residual cometido en cada partición, en lugar de sobre el número de instancias que intervienen en la misma. Así, mediante el parámetro `mindev` se puede especificar la fracción sobre la desviación global de los datos (la del nodo raíz o tronco del árbol) que debe alcanzarse como mínimo en cada nueva partición. Esto garantiza que el algoritmo detiene la partición de los datos cuando la reducción en la varianza explicada se encuentra por debajo del valor especificado.
+
+Para ilustrar esto, indicaremos a continuación un rango de desviación que va desde 0 (es decir, crecimiento del árbol sin restricción de este parámetro) hasta 1 (es decir, una restricción total):
+
+```{r}
+mindevs <- c(0, 0.01, 0.05, 0.075, 0.5, 1)
+mindev <- sapply(mindevs, function(i) {
+  control.pars <- tree.control(nobs = nrow(Hitters), mindev = i)
+  summ <- tree(log(Salary) ~ ., data = Hitters, control = control.pars) %>% summary()
+  c(summ$size, summ$dev/summ$df)
+})
+```
+```{r}
+par(mar = c(5, 5, 3, 5))
+plot(as.character(mindevs), mindev[1,], type = "b", ylab = "Tree size",
+     xlab = "\'mindev\' parameter value")
+par(new = TRUE)
+plot(as.character(mincuts), mincut[2,], type = "b", xaxt = "n", yaxt = "n",
+     ylab = "", xlab = "", col = "red", lty = 2)
+axis(side = 4, col.ticks = "red", col.axis = "red")
+mtext("Mean residual deviance", side = 4, line = 3)
+legend("top", c("tree size", "mean res. dev."),
+       col = c("black", "red"), lty = c(1, 2))
+```
+
+Como era de esperar, el árbol alcanza la mayor complejidad posible cuando se establece el valor de `mindev = 0`, mientras que no se realiza ninguna división de los datos cuando `mindev = 1`, ya que cualquier partición reduce la desviación por debajo de la global.
+
+De acuerdo con la documentación de la función `tree.control`, para obtener un árbol con el máximo desarrollo, es decir, que se ajuste a los datos con le menor error posible, deben fijatrse los argumentos `mindev = 0` y `minsize = 2`:
+
+```{r}
+big.tree <- tree(log(Salary) ~ ., data = Hitters,
+                 control = tree.control(nobs = nrow(Hitters), 
+                                        mindev = 0,
+                                        minsize = 2))
+summary(big.tree)
+```
+
+Como vemos, da lugar a un arbol con 216 nodos terminales.
+
+
+# Referencias
+
+ * Brian Ripley (2019). tree: Classification and Regression Trees. R package version 1.0-40.
+  https://CRAN.R-project.org/package=tree
+
+# Session Info
+
+```{r, echo=FALSE, eval=TRUE, warning=FALSE}
+print(sessionInfo())
+```
+
