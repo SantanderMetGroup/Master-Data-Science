@@ -1,0 +1,578 @@
+---
+title: "El paquete caret"
+author: "Santander Meteorology Group"
+documentclass: article
+output:
+  html_document:
+    fig_caption: yes
+    highlight: pygments
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    fig_caption: yes
+    highlight: pygments
+    latex_engine: pdflatex
+    pandoc_args:
+    - --number-sections
+    - --number-offset=0
+    toc: yes
+encoding: UTF8
+subtitle: Práctica de aplicación a problemas de clasificación
+abstract: null
+urlcolor: blue
+---
+
+\fontfamily{cmr}
+\fontsize{11}{22}
+\selectfont
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Visualización
+
+The `featurePlot` function is a wrapper for different lattice plots to visualize the data. 
+For classification data sets, the iris data are used for illustration.
+
+
+Scatterplot Matrix:
+
+
+```{r pressure, echo=FALSE}
+library(caret)
+featurePlot(x = iris[, 1:4], 
+            y = iris$Species, 
+            plot = "pairs",
+            ## Add a key at the top
+            auto.key = list(columns = 3))
+```
+
+Density Plots:
+
+```{r}
+featurePlot(x = iris[, 1:4], 
+            y = iris$Species,
+            plot = "density", 
+            ## Pass in options to xyplot() to 
+            ## make it prettier
+            scales = list(x = list(relation="free"), 
+                          y = list(relation="free")), 
+            adjust = 1.5, 
+            pch = "|", 
+            layout = c(4, 1), 
+            auto.key = list(columns = 3))
+```
+
+Box Plots:
+
+```{r}
+featurePlot(x = iris[, 1:4], 
+            y = iris$Species, 
+            plot = "box", 
+            ## Pass in options to bwplot() 
+            scales = list(y = list(relation="free"),
+                          x = list(rot = 90)),  
+            layout = c(4,1 ), 
+            auto.key = list(columns = 2))
+```
+
+# Post-processing
+## Zero- and Near Zero-Variance Predictors
+
+In some situations, the data generating mechanism can create predictors that only have a single unique value (i.e. a “zero-variance predictor”). For many models (excluding tree-based models), this may cause the model to crash or the fit to be unstable.
+
+Similarly, predictors might have only a handful of unique values that occur with very low frequencies. For example, in the drug resistance data, the nR11 descriptor (number of 11-membered rings) data have a few unique numeric values that are highly unbalanced:
+
+```{r}
+data(mdrr)
+?mdrr
+```
+
+
+```{r}
+message("data dimension")
+dim(mdrrDescr)
+message("summary of variable nR11")
+data.frame(table(mdrrDescr$nR11))
+```
+
+
+The concern here that these predictors may become zero-variance predictors when the data are split into cross-validation/bootstrap sub-samples or that a few samples may have an undue influence on the model. These “near-zero-variance” predictors may need to be identified and eliminated prior to modeling.
+
+
+* **frequency ratio**: The frequency of the most prevalent value over the second most frequent value (called the ), which would be near one for well-behaved predictors and very large for highly-unbalanced data and the “percent of unique values’’ is the number of unique values divided by the total number of samples (times 100) that approaches zero as the granularity of the data increases.
+
+* **percent of unique values** is the number of unique values divided by the total number of samples (times 100) that approaches zero as the granularity of the data increases
+
+```{r}
+nzv <- nearZeroVar(mdrrDescr, saveMetrics= TRUE)
+nzv[nzv$nzv,][1:10,]
+```
+
+
+
+By default, `nearZeroVar` will return the positions of the variables that are flagged to be problematic:
+
+```{r}
+nzv <- nearZeroVar(mdrrDescr)
+filteredDescr <- mdrrDescr[, -nzv]
+dim(filteredDescr)
+```
+
+## Identifying Correlated Predictors
+
+Given a correlation matrix, the `findCorrelation` function uses the following algorithm to flag predictors for removal:
+
+```{r}
+descrCor <-  cor(filteredDescr)
+levelplot(descrCor)
+```
+
+```{r}
+highlyCorDescr <- findCorrelation(descrCor, cutoff = .75)
+filteredDescr <- filteredDescr[,-highlyCorDescr]
+descrCor2 <- cor(filteredDescr)
+levelplot(descrCor2, at = seq(-1, 1, 0.25))
+```
+
+## The preProcess Function
+
+The `preProcess class` can be used for many operations on predictors, including centering and scaling. The function `preProcess` estimates the required parameters for each operation and `predict.preProcess` is used to apply them to specific data sets. In other words, the `preProcess` function estimates whatever it requires from a specific data set (e.g. the training set) and then applies these transformations to any data set without recomputing the values (e.g. the test set).
+
+### Centering and Scaling
+
+In the example below, the half of the MDRR data are used to estimate the location and scale of the predictors.
+
+```{r}
+set.seed(96)
+inTrain <- sample(seq(along = mdrrClass), length(mdrrClass)/2)
+
+# Predictores
+training <- filteredDescr[inTrain,]
+test <- filteredDescr[-inTrain,]
+
+# Predictando
+trainMDRR <- mdrrClass[inTrain]
+testMDRR <- mdrrClass[-inTrain]
+```
+
+
+```{r}
+preProcValues <- preProcess(training, method = c("center", "scale"))
+str(preProcess)
+```
+
+Application:
+
+```{r}
+trainTransformed <- predict(preProcValues, training)
+testTransformed <- predict(preProcValues, test)
+```
+
+Check outputs...
+
+```{r}
+xyplot(AMW ~ QXXm,
+       data = training,
+       groups = trainMDRR, 
+       auto.key = list(columns = 2)) 
+```
+
+
+```{r}
+xyplot(AMW ~ QXXm,
+       data = trainTransformed,
+       groups = trainMDRR, 
+       auto.key = list(columns = 2)) 
+```
+
+```{r}
+mean(training$AMW)
+mean(trainTransformed$AMW)
+```
+
+### Transforming Predictors
+
+In some cases, there is a need to use principal component analysis (PCA) to transform the data to a smaller sub–space where the new variable are uncorrelated with one another. The preProcess class can apply this transformation by including "pca" in the method argument. Doing this **will also force scaling of the predictors**. 
+
+```{r}
+preProcValues <- preProcess(training, method = "pca")
+preProcValues
+```
+```{r}
+preProcValues <- preProcess(training, method = "pca", pcaComp = 20)
+preProcValues
+```
+
+
+## Data Splitting
+
+
+### Simple Splitting Based on the target variable
+
+The function `createDataPartition` can be used to create **balanced splits of the data**. If the y argument to this function is a factor, the random sampling occurs within each class and should preserve the overall class distribution of the data. 
+
+```{r}
+?createDataPartition
+```
+
+For example, to create a single 80/20% split of the iris data:
+
+```{r}
+set.seed(3456)
+trainIndex <- createDataPartition(iris$Species, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+irisTrain <- iris[trainIndex,]
+irisTest  <- iris[-trainIndex,]
+table(irisTrain$Species)
+table(irisTest$Species)
+```
+
+```{r}
+irisTrainFolds <- createFolds(iris$Species, k = 10)
+str(irisTrainFolds)
+```
+
+```{r}
+table(iris[irisTrainFolds[[1]],]$Species)
+table(iris[irisTrainFolds[[5]],]$Species)
+```
+
+
+### Splitting Based on the Predictors
+
+Also, the function `maxDissim` can be used to create sub–samples using a maximum dissimilarity approach (Willett, 1999). Suppose there is a data set **A with m samples** and **a larger data set B with n samples**. We may want to **create a sub–sample from B that is diverse when compared to A**.
+
+For instance, lets say that we are using an **initial random sample of a data frame**. Then we can **select 20 more smples** from the data so that the new compounds are most dissimilar from the initial 5 that were specified. 
+
+```{r}
+data(cars)
+cars1 <- cars[,c("Price", "Mileage")]
+
+## A random sample of 5 data points
+startSet <- sample(1:nrow(cars1), 5)
+samplePool <- cars1[-startSet,]
+start <- cars1[startSet,]
+newSamp <- maxDissim(start, samplePool, n = 20)
+```
+
+
+```{r}
+plot(cars1)
+points(start, col = "blue")
+points(cars1[newSamp,], col = "red")
+```
+
+`createTimeSlices` for splitting time series and `groupKFold` for splitting based on different groups are other splitting functions in `caret` (see http://topepo.github.io/caret/ for more Info).
+
+# Model Training and Parameter Tuning
+
+The caret package has several functions that attempt to streamline the model building and evaluation process.
+
+The `train` function can be used to **evaluate, using resampling, the effect of model tuning parameters on performance**.
+
+First, a specific model must be chosen. Currently, 238 are available using `caret`:
+
+```{r}
+models <- getModelInfo()
+names(models)
+```
+
+The Sonar data are available in the `mlbench` package. 
+
+```{r, eval=FALSE}
+install.packages("mlbench")
+```
+
+```{r}
+library(mlbench)
+data(Sonar)
+str(Sonar[, 1:10])
+```
+
+The function `createDataPartition` can be used to create a stratified random sample of the data into training and test sets:
+
+
+
+```{r}
+library(caret)
+set.seed(998)
+inTraining <- createDataPartition(Sonar$Class, p = .75, list = FALSE)
+training <- Sonar[ inTraining,]
+testing  <- Sonar[-inTraining,]
+```
+
+
+
+## Basic Parameter Tuning
+
+The function `trainControl` can be used to specifiy the type of resampling:
+  
+```{r}
+fitControl <- trainControl(## 10-fold CV
+  method = "repeatedcv",
+  number = 10,
+  ## repeated ten times
+  repeats = 10)
+```
+
+
+### Training with function `train` (e.g. gradient boosting; the "gbm" model):
+
+```{r, eval=FALSE}
+install.packages("gbm")
+```
+
+Function `getModelInfo` return all the functions and metadata associated with a model
+```{r, eval = FALSE}
+getModelInfo(model = "gbm")
+```
+
+Function `modelLookup` returns useful information for parameter tuning
+```{r}
+modelLookup("gbm")
+```
+
+For a gradient boosting machine (GBM) model, these are tuning parameters:
+  
+* number of iterations, i.e. trees, (called n.trees in the gbm function)
+* complexity of the tree, called interaction.depth
+* learning rate: how quickly the algorithm adapts, called shrinkage
+* the minimum number of training set samples in a node to commence splitting (n.minobsinnode)
+
+```{r}
+set.seed(825)
+gbmFit1 <- train(Class ~ ., data = training, 
+                 method = "gbm", 
+                 trControl = fitControl,
+                 ## This last option is actually one
+                 ## for gbm() that passes through
+                 verbose = FALSE)
+gbmFit1
+```
+
+
+The column labeled “Accuracy” is the overall agreement rate averaged over cross-validation iterations. 
+
+## Customizing the Tuning Process
+
+**The tuning parameter grid can be specified by the user**. The argument `tuneGrid` can take a **data frame with columns for each tuning parameter**. The column names should be the same as the fitting function’s arguments.
+
+For instance, we can fix the learning rate and evaluate more than three values of n.trees:
+
+```{r}
+gbmGrid <-  expand.grid(interaction.depth = c(1, 5, 9), 
+                        n.trees = (1:30)*50, 
+                        shrinkage = 0.1,
+                        n.minobsinnode = 20)
+gbmGrid
+```
+
+
+This grid is passed to function `train` by setting argument `tuneGrid`
+```{r}
+set.seed(825)
+gbmFit2 <- train(Class ~ ., data = training, 
+                 method = "gbm", 
+                 trControl = fitControl, 
+                 verbose = FALSE, 
+                 ## Now specify the exact models 
+                 ## to evaluate:
+                 tuneGrid = gbmGrid)
+gbmFit2
+```
+
+Another option is to use a **random sample of possible tuning parameter combinations** by setting argument search in `trainControl`.
+
+### Práctica 1 
+
+Vuelve a repetir la calibración con el método "gbm" utilizando un máximo de 6 combinaciones de parámetros aleatorios (utiliza las páginas de ayuda de `trainControl` y `train`)
+
+```{r}
+
+```
+
+### Plotting the Resampling Profile
+
+```{r}
+# trellis.par.set(caretTheme())
+plot(gbmFit2)
+```
+
+```{r}
+plot(gbmFit2, metric = "Kappa")
+```
+
+
+**The user can change the metric used to determine the best settings. By default, RMSE, R2, and the mean absolute error (MAE) are computed for regression while accuracy and Kappa are computed for classification**. For example, in problems where there are a low percentage of samples in one class, using `metric = "Kappa"` can improve quality of the final model.
+
+**Custom functions can be used to calculate performance scores that are averaged over the resamples**. For instance the `twoClassSummary` built-in function, will compute the **sensitivity, specificity and area under the ROC curve**:
+
+```{r}
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 10,
+                           repeats = 10,
+                           ## Estimate class probabilities
+                           classProbs = TRUE,
+                           ## Evaluate performance using 
+                           ## the following function
+                           summaryFunction = twoClassSummary)
+
+set.seed(825)
+gbmFit3 <- train(Class ~ ., data = training, 
+                 method = "gbm", 
+                 trControl = fitControl, 
+                 verbose = FALSE, 
+                 tuneGrid = gbmGrid,
+                 ## Specify which metric to optimize
+                 metric = "ROC")
+plot(gbmFit3)
+```
+
+
+## Choosing the Final Model
+
+**The "results" slot of the object returned by train contains the different parameter combinations and the corresponding metric.**
+
+```{r}
+head(gbmFit3$results)
+```
+
+### Práctica 2:
+
+Elegid el mejor modelo de `gbmFit3` y utilizando las funciones `best` y `tolerance`, utiliza diferentes valores para el argumento tol (e.g. 2, 10, ..). ¿Qué diferencias se ven en los parámetros y la métrica? ¿Para qué sirve el argumento tol?
+
+```{r}
+?best
+```
+
+```{r}
+
+```
+
+# Training and Prediction
+
+In cases where the model tuning values are known, `train` can be used to **fit the model to the entire training set without any resampling or parameter tuning** by using the `method = "none"` option in `trainControl`. For example:
+
+```{r}
+fitControl <- trainControl(method = "none", classProbs = TRUE)
+
+set.seed(825)
+gbmFit4 <- train(Class ~ ., data = training, 
+                 method = "gbm", 
+                 trControl = fitControl, 
+                 verbose = FALSE, 
+                 ## Only a single model can be passed to the
+                 ## function when no resampling is used:
+                 tuneGrid = data.frame(interaction.depth = 5,
+                                       n.trees = 100,
+                                       shrinkage = .1,
+                                       n.minobsinnode = 20),
+                 metric = "ROC")
+gbmFit4
+```
+
+The output model will be used for prediction (function `predict`):
+
+```{r}
+out4 <- predict(gbmFit4, newdata = testing)
+out4
+```
+
+```{r}
+out4prob <- predict(gbmFit4, newdata = testing, type = "prob")
+head(out4prob)
+```
+
+
+
+# Práctica final
+
+En la sesion 16 (Ensembles, Bagging y Boosting) visteis ejemplos sencillos del uso de random forest. Uno de ellos abordaba un problema de clasificación (lluvia/no lluvia) utilizando el conjunto de datos `meteo.csv`. 
+
+
+```{r}
+meteo <- read.csv("/media/maialen/work/WORK/GIT/Master-Data-Science/Data_mining/datasets/meteo.csv")
+str(meteo)
+
+```
+
+El ejemplo no utilizaba caret y era muy sencillo. Construye un ejemplo más completo con los diferentes pasos que hemos visto en este notebook. En este ejemplo `occ` sera el predictando y `predictors` las variables predictoras. 
+
+
+```{r}
+meteo1000 <- meteo[1:1000,]
+occ = meteo1000[,"y"]
+ind0 <- which(occ < 1)
+ind1 <- which(occ >= 1)
+occ[ind0] = "no"
+occ[ind1] = "yes"
+occ <- as.factor(occ)
+
+predictors <- meteo1000[, -(1:2)]
+```
+
+Necesitaréis instalar los paquetes `ranger` y  `ordinalForest`:
+
+```{r, eval = FALSE}
+install.packages(c("ranger", "ordinalForest"))
+```
+
+A partir de aquí las instrucciones son las siguientes:
+
+* Utiliza el 80% de los datos para el conjunto de train y el resto para el conjunto de test. Asegúrate de que los eventos de lluvia y no lluvia estén balanceados en ambas muestras.
+* Transforma los predictores: Utiliza las componentes principales que explican el 95% de la varianza
+* ¿Qué parametros tiene el método random forest (method = 'ranger')?
+* Utiliza k-fold y 10 repeticiones para calibrar el método. Utiliza "ROC" como métrica a optimizar.
+* Utiliza los valores de los parámetros que incluyé el método por defecto para ajustar el primer modelo y echa un vistazo a los resultados
+* Repite la operación eligiendo los valores de los parámetros para ajustar un segundo modelo.
+* Elige el mejor modelo de entre las dos calibraciones llevadas a cabo para después entrenar y predecir la ocurrencia de lluvia
+
+
+```{r}
+# Utiliza el 80% de los datos para el conjunto de train y el resto para el conjunto de test. Asegúrate de que los eventos de lluvia y no lluvia estén balanceados en ambas muestras.
+
+```
+
+```{r}
+
+# Transforma los predictores: Utiliza las componentes principales que explican el 95% de la varianza
+
+```
+
+```{r}
+
+# ¿Qué parametros tiene el método random forest (method = 'ranger')?
+
+```
+
+```{r}
+# Utiliza k-fold y 10 repeticiones para calibrar el método. Utiliza "ROC" como métrica a optimizar.
+
+```
+
+```{r}
+# Utiliza los valores de los parámetros que incluyé el método por defecto para ajustar el primer modelo y echa un vistazo a los resultados
+
+```
+
+
+
+```{r}
+# Repite la operación eligiendo los valores de los parámetros para ajustar un segundo modelo.
+
+```
+
+```{r}
+# Elige el mejor modelo de entre las dos calibraciones llevadas a cabo para después entrenar y predecir la ocurrencia de lluvia
+
+```
+
+
+
