@@ -43,7 +43,7 @@ For classification data sets, the iris data are used for illustration.
 Scatterplot Matrix:
 
 
-```{r pressure, echo=FALSE}
+```{r pressure}
 library(caret)
 featurePlot(x = iris[, 1:4], 
             y = iris$Species, 
@@ -164,7 +164,7 @@ testMDRR <- mdrrClass[-inTrain]
 
 ```{r}
 preProcValues <- preProcess(training, method = c("center", "scale"))
-str(preProcess)
+str(preProcValues)
 ```
 
 Application:
